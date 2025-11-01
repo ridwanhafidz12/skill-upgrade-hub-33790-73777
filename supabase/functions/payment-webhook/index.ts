@@ -1,10 +1,28 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+async function verifyMidtransSignature(
+  orderId: string,
+  statusCode: string,
+  grossAmount: string,
+  serverKey: string,
+  signatureKey: string
+): Promise<boolean> {
+  const signatureString = `${orderId}${statusCode}${grossAmount}${serverKey}`;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(signatureString);
+  const hashBuffer = await crypto.subtle.digest('SHA-512', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const calculatedSignature = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  
+  return calculatedSignature === signatureKey;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -19,6 +37,42 @@ serve(async (req) => {
 
     const notification = await req.json();
     console.log('Received Midtrans notification:', notification);
+
+    // Verify Midtrans signature
+    const serverKey = Deno.env.get('MIDTRANS_SERVER_KEY');
+    if (!serverKey) {
+      console.error('MIDTRANS_SERVER_KEY not configured');
+      return new Response(
+        JSON.stringify({ error: 'Server configuration error' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const { order_id, status_code, gross_amount, signature_key } = notification;
+    
+    if (!signature_key) {
+      console.error('Missing signature_key in notification');
+      return new Response(
+        JSON.stringify({ error: 'Invalid request' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const isValid = await verifyMidtransSignature(
+      order_id,
+      status_code,
+      gross_amount,
+      serverKey,
+      signature_key
+    );
+
+    if (!isValid) {
+      console.error('Invalid Midtrans signature');
+      return new Response(
+        JSON.stringify({ error: 'Invalid signature' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const orderId = notification.order_id;
     const transactionStatus = notification.transaction_status;
