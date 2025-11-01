@@ -47,14 +47,33 @@ const CertificateVerify = () => {
             .single();
           
           if (courseData?.certificate_template_url) {
-            // Get signed URL for private template
-            const { data: signedData } = await supabase.storage
-              .from('certificate-templates')
-              .createSignedUrl(courseData.certificate_template_url, 3600);
+            // Extract file path from full URL if needed
+            let filePath = courseData.certificate_template_url;
             
-            if (signedData?.signedUrl) {
-              setTemplateUrl(signedData.signedUrl);
+            // If it's a full URL, extract just the path after /certificate-templates/
+            if (filePath.includes('/object/public/certificate-templates/')) {
+              filePath = filePath.split('/object/public/certificate-templates/')[1];
+            } else if (filePath.includes('/object/sign/certificate-templates/')) {
+              filePath = filePath.split('/object/sign/certificate-templates/')[1];
             }
+            
+            // Check if bucket is public or private by attempting to use public URL first
+            const publicUrl = `${supabase.storage.from('certificate-templates').getPublicUrl(filePath).data.publicUrl}`;
+            
+            // Try to load the public URL first (if bucket is public)
+            const img = new Image();
+            img.onload = () => setTemplateUrl(publicUrl);
+            img.onerror = async () => {
+              // If public URL fails, try signed URL (for private buckets)
+              const { data: signedData } = await supabase.storage
+                .from('certificate-templates')
+                .createSignedUrl(filePath, 3600);
+              
+              if (signedData?.signedUrl) {
+                setTemplateUrl(signedData.signedUrl);
+              }
+            };
+            img.src = publicUrl;
           }
         }
       } else {
