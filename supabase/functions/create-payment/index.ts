@@ -1,10 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Input validation schema
+const paymentRequestSchema = z.object({
+  courseId: z.string().uuid('Invalid course ID format'),
+  amount: z.number().positive('Amount must be positive').min(1, 'Amount must be at least 1')
+});
 
 // Map internal errors to user-friendly messages
 function getUserMessage(error: Error): string {
@@ -12,6 +19,8 @@ function getUserMessage(error: Error): string {
     'Missing authorization header': 'Authentication required. Please log in.',
     'Unauthorized': 'Authentication required. Please log in.',
     'Missing required fields': 'Invalid payment request. Please try again.',
+    'Course not found': 'The selected course does not exist or is not available.',
+    'Price mismatch': 'The payment amount does not match the course price.',
     'Failed to create payment record': 'Payment processing is temporarily unavailable. Please try again later.',
     'Failed to create Midtrans transaction': 'Payment provider is temporarily unavailable. Please try again later.',
   };
@@ -43,10 +52,35 @@ serve(async (req) => {
       throw new Error('Unauthorized');
     }
 
-    const { courseId, amount } = await req.json();
+    // Parse and validate request body
+    const requestBody = await req.json();
+    const validationResult = paymentRequestSchema.safeParse(requestBody);
+    
+    if (!validationResult.success) {
+      const errorMessage = validationResult.error.errors[0]?.message || 'Invalid input';
+      console.error('Validation error:', validationResult.error);
+      return new Response(
+        JSON.stringify({ error: errorMessage }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
-    if (!courseId || !amount) {
-      throw new Error('Missing required fields');
+    const { courseId, amount } = validationResult.data;
+
+    // Verify course exists and validate price
+    const { data: course, error: courseError } = await supabase
+      .from('courses')
+      .select('id, price, is_free, status')
+      .eq('id', courseId)
+      .single();
+
+    if (courseError || !course) {
+      throw new Error('Course not found');
+    }
+
+    // Validate amount matches course price (unless course is free)
+    if (!course.is_free && course.price !== amount) {
+      throw new Error('Price mismatch');
     }
 
     // Generate unique order ID

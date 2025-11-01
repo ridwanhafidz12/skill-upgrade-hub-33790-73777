@@ -1,10 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Input validation schema
+const certificateRequestSchema = z.object({
+  courseId: z.string().uuid('Invalid course ID format')
+});
 
 // Map internal errors to user-friendly messages
 function getUserMessage(error: Error): string {
@@ -12,6 +18,7 @@ function getUserMessage(error: Error): string {
     'Missing authorization header': 'Authentication required. Please log in.',
     'Unauthorized': 'Authentication required. Please log in.',
     'Missing course ID': 'Invalid request. Please try again.',
+    'Course not found': 'The selected course does not exist.',
     'Enrollment not found': 'Unable to generate certificate. Please ensure you are enrolled in this course.',
     'Course not completed yet': 'Certificate requires 100% course completion. Please finish all course materials.',
     'Failed to create certificate': 'Certificate generation is temporarily unavailable. Please try again later.',
@@ -44,10 +51,30 @@ serve(async (req) => {
       throw new Error('Unauthorized');
     }
 
-    const { courseId } = await req.json();
+    // Parse and validate request body
+    const requestBody = await req.json();
+    const validationResult = certificateRequestSchema.safeParse(requestBody);
+    
+    if (!validationResult.success) {
+      const errorMessage = validationResult.error.errors[0]?.message || 'Invalid input';
+      console.error('Validation error:', validationResult.error);
+      return new Response(
+        JSON.stringify({ error: errorMessage }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
-    if (!courseId) {
-      throw new Error('Missing course ID');
+    const { courseId } = validationResult.data;
+
+    // Verify course exists
+    const { data: courseCheck, error: courseCheckError } = await supabase
+      .from('courses')
+      .select('id')
+      .eq('id', courseId)
+      .single();
+
+    if (courseCheckError || !courseCheck) {
+      throw new Error('Course not found');
     }
 
     // Check if enrollment is complete
