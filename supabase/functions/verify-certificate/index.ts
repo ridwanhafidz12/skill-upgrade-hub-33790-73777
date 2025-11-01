@@ -6,6 +6,15 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Map internal errors to user-friendly messages
+function getUserMessage(error: Error): string {
+  const errorMap: Record<string, string> = {
+    'Missing certificate number': 'Invalid verification request. Please provide a certificate number.',
+  };
+  
+  return errorMap[error.message] || 'An unexpected error occurred during verification. Please contact support if the issue persists.';
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -59,10 +68,16 @@ serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('Error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    // Log detailed error server-side only
+    console.error('Certificate verification error:', error);
+    
+    // Return user-friendly message to client
+    const userMessage = error instanceof Error 
+      ? getUserMessage(error) 
+      : 'An unexpected error occurred during verification. Please contact support if the issue persists.';
+    
     return new Response(
-      JSON.stringify({ error: errorMessage, valid: false }),
+      JSON.stringify({ error: userMessage, valid: false }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

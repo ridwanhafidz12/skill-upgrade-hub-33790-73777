@@ -6,6 +6,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Map internal errors to user-friendly messages
+function getUserMessage(error: Error): string {
+  const errorMap: Record<string, string> = {
+    'Missing authorization header': 'Authentication required. Please log in.',
+    'Unauthorized': 'Authentication required. Please log in.',
+    'Missing course ID': 'Invalid request. Please try again.',
+    'Enrollment not found': 'Unable to generate certificate. Please ensure you are enrolled in this course.',
+    'Course not completed yet': 'Certificate requires 100% course completion. Please finish all course materials.',
+    'Failed to create certificate': 'Certificate generation is temporarily unavailable. Please try again later.',
+  };
+  
+  return errorMap[error.message] || 'An unexpected error occurred. Please contact support if the issue persists.';
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -132,10 +146,16 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('Error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    // Log detailed error server-side only
+    console.error('Certificate generation error:', error);
+    
+    // Return user-friendly message to client
+    const userMessage = error instanceof Error 
+      ? getUserMessage(error) 
+      : 'An unexpected error occurred. Please contact support if the issue persists.';
+    
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: userMessage }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
