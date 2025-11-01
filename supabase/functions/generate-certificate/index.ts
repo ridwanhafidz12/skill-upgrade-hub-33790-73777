@@ -128,10 +128,9 @@ serve(async (req) => {
       .eq('id', user.id)
       .single();
 
-    // Create verification URL - users will scan QR and go to this page
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const projectId = supabaseUrl.split('//')[1]?.split('.')[0] ?? '';
-    const verificationUrl = `https://${projectId}.lovable.app/certificate/verify/${certNumber}`;
+    // Get the actual app URL from request origin/referer
+    const origin = req.headers.get('origin') || req.headers.get('referer')?.split('/').slice(0, 3).join('/') || '';
+    const verificationUrl = `${origin}/certificate/verify/${certNumber}`;
     
     // Generate QR code URL using a public QR code API - QR code will directly link to verification page
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(verificationUrl)}`;
