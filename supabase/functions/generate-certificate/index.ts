@@ -128,11 +128,21 @@ serve(async (req) => {
       .eq('id', user.id)
       .single();
 
-    // Get the actual app URL from request origin/referer
-    const origin = req.headers.get('origin') || req.headers.get('referer')?.split('/').slice(0, 3).join('/') || '';
+    // Get the actual app URL from request origin or referer - adapts to any domain
+    let origin = req.headers.get('origin');
+    if (!origin) {
+      const referer = req.headers.get('referer');
+      if (referer) {
+        const url = new URL(referer);
+        origin = `${url.protocol}//${url.host}`;
+      }
+    }
+    
     const verificationUrl = `${origin}/certificate/verify/${certNumber}`;
     
-    // Generate QR code URL using a public QR code API - QR code will directly link to verification page
+    console.log('Certificate URL will use domain:', origin);
+    
+    // Generate QR code URL - automatically adapts to current domain (lovable.app or custom domain)
     const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(verificationUrl)}`;
 
     // Create certificate record
